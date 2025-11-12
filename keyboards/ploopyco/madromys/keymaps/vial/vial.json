@@ -5,7 +5,14 @@
   "lighting": "none",
   "customKeycodes": [
     {"name": "DPI Config", "title": "DPI Config", "shortName": "DPI"},
-    {"name": "Drag Scroll", "title": "Drag Scroll", "shortName": "Drag\nScrl"}
+    {"name": "Drag Scroll", "title": "Drag Scroll", "shortName": "Drag\nScrl"},
+    {"name": "Drag Scroll Momentary", "title": "Drag Scroll Momentary", "shortName": "Scrl\nMomt"},
+    {"name": "Drag Scroll Snap", "title": "Drag Scroll Snap", "shortName": "Scrl\nSnap"},
+    {"name": "Hi-res Scroll", "title": "Hi-res Scroll", "shortName": "Hires\nScrl"},
+    {"name": "Scroll Priority", "title": "Scroll Priority", "shortName": "Scrl\nPriy"},
+    {"name": "Scroll Sensitivity", "title": "Scroll Sensitivity", "shortName": "Scrl\nDiv"},
+    {"name": "Snipe Mode", "title": "Snipe Mode", "shortName": "Snp\nmode"},
+    {"name": "Snipe Mode Momentary", "title": "Snipe Mode Momentary", "shortName": "Snp\nMomt"}
   ],
   "matrix": {"rows": 1, "cols": 6},
   "layouts": {

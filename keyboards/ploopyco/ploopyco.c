@@ -42,6 +42,9 @@
 #        define PLOOPY_DPI_DEFAULT 1
 #    endif
 #endif
+#ifndef PLOOPY_SNIPE_DPI
+#   define PLOOPY_SNIPE_DPI 100
+#endif
 #ifndef PLOOPY_DPI_DEFAULT
 #    define PLOOPY_DPI_DEFAULT 0
 #endif
@@ -57,16 +60,80 @@
 #ifndef ENCODER_BUTTON_COL
 #    define ENCODER_BUTTON_COL 0
 #endif
+#ifndef PLOOPY_SNAP_SMP_LEN_SQ
+#    define PLOOPY_SNAP_SMP_LEN_SQ 64
+#endif
+#ifndef PLOOPY_SNAP_RATIO_I
+#   define PLOOPY_SNAP_RATIO_I 4
+#endif
+#ifndef PLOOPY_SNAP_RATIO_J
+#   define PLOOPY_SNAP_RATIO_J 1
+#endif
+#ifndef PLOOPY_SCROLL_DIV_OPTIONS
+#   define PLOOPY_SCROLL_DIV_OPTIONS \
+       { 4, 2, 1.5, 1, 0.5 }
+#endif
+#ifndef PLOOPY_SCROLL_DIV_DEFAULT
+#   define PLOOPY_SCROLL_DIV_DEFAULT 0
+#endif
+
+/*
+#ifndef PLOOPY_SNAP_BUFFER_SIZE
+#    define PLOOPY_SNAP_BUFFER_SIZE 8
+#endif
+*/
 
 keyboard_config_t keyboard_config;
-uint16_t          dpi_array[] = PLOOPY_DPI_OPTIONS;
+uint16_t          dpi_array[]  = PLOOPY_DPI_OPTIONS;
+float             scroll_div[] = PLOOPY_SCROLL_DIV_OPTIONS;
+uint16_t          snipe_dpi    = PLOOPY_SNIPE_DPI;
 #define DPI_OPTION_SIZE ARRAY_SIZE(dpi_array)
+#define SCROLL_DIV_OPTION_SIZE ARRAY_SIZE(scroll_div)
+
+// Defined variables
+#ifdef PLOOPY_DRAGSCROLL_INVERT
+const int vscroll_sign = -1;
+#else
+const int vscroll_sign = 1;
+#endif
+enum DRAG_SCROLL_PRIORITY { PRI_NONE, PRI_V, PRI_H };
 
 // Trackball State
+bool  is_sniping           = false;
+#ifdef PLOOPY_SNIPE_MOMENTARY
+bool  is_snipe_momentary   = true;
+#else
+bool  is_snipe_momentary   = false;
+#endif
 bool  is_scroll_clicked    = false;
 bool  is_drag_scroll       = false;
+bool  is_drag_scroll_snap  = true;
+enum DRAG_SCROLL_PRIORITY drag_scroll_priority = PRI_NONE;
+bool  is_hires_scroll = true;
 float scroll_accumulated_h = 0;
 float scroll_accumulated_v = 0;
+uint32_t last_scroll_time = 0;
+
+#ifdef PLOOPY_DRAGSCROLL_MOMENTARY
+bool  is_drag_scroll_momentary  = true;
+#else
+bool  is_drag_scroll_momentary  = false;
+#endif
+
+// variables used by scroll-snapping
+// piggy-back on scroll_accumulated seems to be a bad idea
+uint16_t cumulated_delta_h = 0;
+uint16_t cumulated_delta_v = 0;
+uint16_t last_delta_h = 0;
+uint16_t last_delta_v = 0;
+/*
+int16_t recorded_deltas_h[PLOOPY_SNAP_BUFFER_SIZE] = {0};
+int16_t recorded_deltas_v[PLOOPY_SNAP_BUFFER_SIZE] = {0};
+size_t buffer_start = 0;  // the h and v buffers should be in sync.
+size_t buffer_end = 0;  // newest entries are added here.
+int16_t delta_h = 0;
+int16_t delta_v = 0;
+*/
 
 #ifdef ENCODER_ENABLE
 uint16_t lastScroll        = 0; // Previous confirmed wheel event
@@ -128,6 +195,22 @@ void encoder_driver_task(void) {
 }
 #endif
 
+/*
+void update_snap_scroll_buffer(int16_t x, int16_t y) {
+    if (x == 0 && y == 0)
+        return;
+    delta_h += x;
+    delta_v += y;
+    delta_h -= recorded_deltas_h[buffer_start];
+    delta_v -= recorded_deltas_v[buffer_start];
+    buffer_end = (buffer_end + 1) % PLOOPY_SNAP_BUFFER_SIZE;
+    recorded_deltas_h[buffer_end] = x;
+    recorded_deltas_v[buffer_end] = y;
+    if (buffer_end == buffer_start)
+        buffer_start = (buffer_start + 1) % PLOOPY_SNAP_BUFFER_SIZE;
+}
+*/
+
 void toggle_drag_scroll(void) {
     is_drag_scroll ^= 1;
 }
@@ -138,30 +221,129 @@ void cycle_dpi(void) {
     pointing_device_set_cpi(dpi_array[keyboard_config.dpi_config]);
 }
 
-report_mouse_t pointing_device_task_kb(report_mouse_t mouse_report) {
-    if (is_drag_scroll) {
-        scroll_accumulated_h += (float)mouse_report.x / PLOOPY_DRAGSCROLL_DIVISOR_H;
-        scroll_accumulated_v += (float)mouse_report.y / PLOOPY_DRAGSCROLL_DIVISOR_V;
+void cycle_scroll_priority() {
+    if (drag_scroll_priority == PRI_NONE)
+        drag_scroll_priority = PRI_V;
+    else if (drag_scroll_priority == PRI_V)
+        drag_scroll_priority = PRI_H;
+    else
+        drag_scroll_priority = PRI_NONE;
+}
 
-        // Assign integer parts of accumulated scroll values to the mouse report
-        mouse_report.h = (int8_t)scroll_accumulated_h;
-#ifdef PLOOPY_DRAGSCROLL_INVERT
-        mouse_report.v = -(int8_t)scroll_accumulated_v;
-#else
-        mouse_report.v = (int8_t)scroll_accumulated_v;
-#endif
+void toggle_scroll_snap() {
+    is_drag_scroll_snap ^= 1;
+}
 
-        // Update accumulated scroll values by subtracting the integer parts
-        scroll_accumulated_h -= (int8_t)scroll_accumulated_h;
-        scroll_accumulated_v -= (int8_t)scroll_accumulated_v;
+void toggle_hires_scroll() {
+    is_hires_scroll ^= 1;
+}
 
-        // Clear the X and Y values of the mouse report
-        mouse_report.x = 0;
-        mouse_report.y = 0;
-
-        mouse_report.x = 0;
-        mouse_report.y = 0;
+void toggle_dragscroll_momentary() {
+    if (is_drag_scroll_momentary) {
+        is_drag_scroll_momentary = false;
+        is_drag_scroll = true;
+    } else {
+        is_drag_scroll_momentary = true;
+        is_drag_scroll = false;
     }
+}
+
+void cycle_scroll_div() {
+    keyboard_config.scroll_div_config = (keyboard_config.scroll_div_config + 1) % SCROLL_DIV_OPTION_SIZE;
+    eeconfig_update_kb(keyboard_config.raw);
+}
+
+void enable_snipe() {
+    is_sniping = false;
+    toggle_snipe_dpi();
+}
+
+void disable_snipe() {
+    is_sniping = true;
+    toggle_snipe_dpi();
+}
+
+void toggle_snipe_dpi() {
+    if (is_sniping) {
+        pointing_device_set_cpi(dpi_array[keyboard_config.dpi_config]);
+        is_sniping = false;
+    } else {
+        pointing_device_set_cpi(snipe_dpi);
+        is_sniping = true;
+    }
+}
+
+void toggle_snipe_momentary() {
+    is_snipe_momentary ^= 1;
+}
+
+report_mouse_t pointing_device_task_kb(report_mouse_t mouse_report) {
+    static uint16_t hires_scroll_res = 1;
+
+    if (!is_drag_scroll) {
+        scroll_accumulated_h = scroll_accumulated_v = 0;
+        cumulated_delta_h = cumulated_delta_v
+            = last_delta_h = last_delta_v = 0;
+        return pointing_device_task_user(mouse_report);
+    }
+
+    if (is_drag_scroll_snap) {
+        // pretty sure that better ways exist
+        cumulated_delta_h += mouse_report.x;
+        cumulated_delta_v += mouse_report.y;
+        if (cumulated_delta_h * cumulated_delta_h +
+                cumulated_delta_v * cumulated_delta_v > PLOOPY_SNAP_SMP_LEN_SQ) {
+            last_delta_h = (cumulated_delta_h > 0)? cumulated_delta_h : -cumulated_delta_h;
+            last_delta_v = (cumulated_delta_v > 0)? cumulated_delta_v : -cumulated_delta_v;
+            cumulated_delta_h = cumulated_delta_v = 0;
+        }
+
+        // SNAP, PRI_NONE is free scroll with snapping
+        if (drag_scroll_priority == PRI_H
+                || last_delta_h * PLOOPY_SNAP_RATIO_I >= last_delta_v * PLOOPY_SNAP_RATIO_J) {
+            scroll_accumulated_h += (float)mouse_report.x / scroll_div[keyboard_config.scroll_div_config];
+        }
+        if (drag_scroll_priority == PRI_V
+                || last_delta_v * PLOOPY_SNAP_RATIO_I >= last_delta_h * PLOOPY_SNAP_RATIO_J) {
+            scroll_accumulated_v += (float)mouse_report.y / scroll_div[keyboard_config.scroll_div_config];
+        }
+    } else {
+        // NO_SNAP, PRI_NONE is true free scroll
+        if (drag_scroll_priority != PRI_V)
+            scroll_accumulated_h += (float)mouse_report.x / scroll_div[keyboard_config.scroll_div_config];
+        if (drag_scroll_priority != PRI_H)
+            scroll_accumulated_v += (float)mouse_report.y / scroll_div[keyboard_config.scroll_div_config];
+    }
+
+    hires_scroll_res = pointing_device_get_hires_scroll_resolution();
+
+    // throttle scrolling
+    if (timer_elapsed32(last_scroll_time) < 16) {
+        mouse_report.h = 0;
+        mouse_report.v = 0;
+    } else {
+        last_scroll_time = timer_read32();
+
+        if (is_hires_scroll) {
+            // Assign integer parts of accumulated scroll values to the mouse report
+            mouse_report.h = (int16_t) scroll_accumulated_h;
+            mouse_report.v = (int16_t) (vscroll_sign * scroll_accumulated_v);
+            // Update accumulated scroll values by subtracting the integer parts
+            scroll_accumulated_h -= (int16_t)scroll_accumulated_h;
+            scroll_accumulated_v -= (int16_t)scroll_accumulated_v;
+        } else {
+            // Shamelessly copied from https://github.com/adept-hires-scroll-mod/qmk_firmware
+            // Emulate no hires scrolling by only reporting in increments of the resolution
+            mouse_report.h = (int16_t)scroll_accumulated_h / hires_scroll_res * hires_scroll_res;
+            mouse_report.v = (int16_t)(vscroll_sign * scroll_accumulated_v / hires_scroll_res * hires_scroll_res);
+            scroll_accumulated_v -= mouse_report.v;
+            scroll_accumulated_h -= mouse_report.h;
+        }
+    }
+
+    // Clear the X and Y values of the mouse report
+    mouse_report.x = 0;
+    mouse_report.y = 0;
 
     return pointing_device_task_user(mouse_report);
 }
@@ -187,14 +369,37 @@ bool process_record_kb(uint16_t keycode, keyrecord_t* record) {
         cycle_dpi();
     }
 
-    if (keycode == DRAG_SCROLL) {
-#ifdef PLOOPY_DRAGSCROLL_MOMENTARY
+    if (keycode == DRAG_SCROLL && is_drag_scroll_momentary) {
         is_drag_scroll = record->event.pressed;
-#else
+    } else if (keycode == SNIPE_DPI && is_snipe_momentary) {
         if (record->event.pressed) {
-            toggle_drag_scroll();
+            enable_snipe();
+        } else {
+            disable_snipe();
         }
-#endif
+    } else if (record->event.pressed) {
+        switch (keycode) {
+        case DRAG_SCROLL:
+            toggle_drag_scroll();
+        case TOGGLE_DRAGSCROLL_MOMENTARY:
+            toggle_dragscroll_momentary();
+            break;
+        case TOGGLE_SCROLL_SNAP:
+            toggle_scroll_snap();
+            break;
+        case TOGGLE_HIRES_SCROLL:
+            toggle_hires_scroll();
+            break;
+        case CYCLE_SCROLL_DIV:
+            cycle_scroll_div();
+            break;
+        case CYCLE_SCROLL_PRIORITY:
+            cycle_scroll_priority();
+            break;
+        case TOGGLE_SNIPE_MOMENTARY:
+            toggle_snipe_momentary();
+            break;
+        }
     }
 
     return true;
@@ -231,7 +436,8 @@ void keyboard_pre_init_kb(void) {
 
 void pointing_device_init_kb(void) {
     keyboard_config.raw = eeconfig_read_kb();
-    if (keyboard_config.dpi_config > DPI_OPTION_SIZE) {
+    if (keyboard_config.dpi_config > DPI_OPTION_SIZE
+            || keyboard_config.scroll_div_config > SCROLL_DIV_OPTION_SIZE) {
         eeconfig_init_kb();
     }
     pointing_device_set_cpi(dpi_array[keyboard_config.dpi_config]);
@@ -239,6 +445,7 @@ void pointing_device_init_kb(void) {
 
 void eeconfig_init_kb(void) {
     keyboard_config.dpi_config = PLOOPY_DPI_DEFAULT;
+    keyboard_config.scroll_div_config = PLOOPY_SCROLL_DIV_DEFAULT;
     eeconfig_update_kb(keyboard_config.raw);
     eeconfig_init_user();
 }

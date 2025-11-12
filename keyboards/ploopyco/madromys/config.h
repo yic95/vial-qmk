@@ -18,6 +18,19 @@
 
 #pragma once
 
+#define PLOOPY_DPI_OPTIONS \
+    { 700, 800, 900, 1200, 1600, 2400 }
+#define PLOOPY_SNIPE_DPI 100
+// Shamelessly copied from https://github.com/adept-hires-scroll-mod/qmk_firmware
+#define POINTING_DEVICE_HIRES_SCROLL_ENABLE
+#define POINTING_DEVICE_HIRES_SCROLL_MULTIPLIER 30
+#define WHEEL_EXTENDED_REPORT // Necessary to send wheel reports with 16-bit values to avoid overflowing
+
+#define PLOOPY_DRAGSCROLL_MOMENTARY
+#define PLOOPY_DRAGSCROLL_INVERT
+
+#define PLOOPY_DRAGSCROLL_SCROLLOCK
+
 #define UNUSABLE_PINS \
     { GP1, GP3, GP4, GP6, GP8, GP10, GP14, GP16, GP18, GP20, GP22, GP24, GP25, GP26, GP27, GP28, GP29 }
 

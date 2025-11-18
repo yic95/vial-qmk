@@ -388,6 +388,10 @@ bool process_record_kb(uint16_t keycode, keyrecord_t* record) {
         switch (keycode) {
         case DRAG_SCROLL:
             toggle_drag_scroll();
+            break;
+        case SNIPE_DPI:
+            toggle_snipe_dpi();
+            break;
         case TOGGLE_DRAGSCROLL_MOMENTARY:
             toggle_dragscroll_momentary();
             break;

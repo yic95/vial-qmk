@@ -127,14 +127,6 @@ float average_scroll_vector_v = 0;
 uint32_t last_snap_sample_time = 0;
 float snap_wema_t_div = PLOOPY_SNAP_EWMA_T;
 uint32_t snap_sample_period = PLOOPY_SNAP_EWMA_SMP_PERIOD;
-/*
-int16_t recorded_deltas_h[PLOOPY_SNAP_BUFFER_SIZE] = {0};
-int16_t recorded_deltas_v[PLOOPY_SNAP_BUFFER_SIZE] = {0};
-size_t buffer_start = 0;  // the h and v buffers should be in sync.
-size_t buffer_end = 0;  // newest entries are added here.
-int16_t delta_h = 0;
-int16_t delta_v = 0;
-*/
 
 #ifdef ENCODER_ENABLE
 uint16_t lastScroll        = 0; // Previous confirmed wheel event
@@ -195,22 +187,6 @@ void encoder_driver_task(void) {
     lastScroll = timer_read();
 }
 #endif
-
-/*
-void update_snap_scroll_buffer(int16_t x, int16_t y) {
-    if (x == 0 && y == 0)
-        return;
-    delta_h += x;
-    delta_v += y;
-    delta_h -= recorded_deltas_h[buffer_start];
-    delta_v -= recorded_deltas_v[buffer_start];
-    buffer_end = (buffer_end + 1) % PLOOPY_SNAP_BUFFER_SIZE;
-    recorded_deltas_h[buffer_end] = x;
-    recorded_deltas_v[buffer_end] = y;
-    if (buffer_end == buffer_start)
-        buffer_start = (buffer_start + 1) % PLOOPY_SNAP_BUFFER_SIZE;
-}
-*/
 
 void toggle_drag_scroll(void) {
     is_drag_scroll ^= 1;

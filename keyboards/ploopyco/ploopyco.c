@@ -89,9 +89,9 @@ uint16_t          snipe_dpi    = PLOOPY_SNIPE_DPI;
 
 // Defined variables
 #ifdef PLOOPY_DRAGSCROLL_INVERT
-const int vscroll_sign = -1;
+const int16_t vscroll_sign = -1;
 #else
-const int vscroll_sign = 1;
+const int16_t vscroll_sign = 1;
 #endif
 enum DRAG_SCROLL_PRIORITY { PRI_NONE, PRI_V, PRI_H };
 
@@ -317,9 +317,13 @@ report_mouse_t pointing_device_task_kb(report_mouse_t mouse_report) {
             // Shamelessly copied from https://github.com/adept-hires-scroll-mod/qmk_firmware
             // Emulate no hires scrolling by only reporting in increments of the resolution
             hires_scroll_res = pointing_device_get_hires_scroll_resolution();
-            mouse_report.h = (int16_t)scroll_accumulated_h / hires_scroll_res * hires_scroll_res;
-            mouse_report.v = (int16_t)(vscroll_sign * scroll_accumulated_v / hires_scroll_res * hires_scroll_res);
+            mouse_report.h = (int16_t) scroll_accumulated_h / hires_scroll_res * hires_scroll_res;
+            mouse_report.v = (int16_t) scroll_accumulated_v / hires_scroll_res * hires_scroll_res;
+
+            // In case vscroll sign is -1
             scroll_accumulated_v -= mouse_report.v;
+            mouse_report.v *= vscroll_sign;
+
             scroll_accumulated_h -= mouse_report.h;
         }
     }

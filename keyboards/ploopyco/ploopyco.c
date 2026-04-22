@@ -70,6 +70,12 @@
 #ifndef PLOOPY_SNAP_RATIO
 #   define PLOOPY_SNAP_RATIO 0.5
 #endif
+#ifndef PLOOPY_MOVEMENT_SPEED_AFTER_DRAGSCROLL
+#   define PLOOPY_MOVEMENT_SPEED_AFTER_DRAGSCROLL 0.25
+#endif
+#ifndef PLOOPY_BEHAVIOR_AFTER_DRAGSCROLL
+#   define PLOOPY_BEHAVIOR_AFTER_DRAGSCROLL 1
+#endif
 #ifndef PLOOPY_SCROLL_DIV_OPTIONS
 #   define PLOOPY_SCROLL_DIV_OPTIONS \
        { 4, 2, 1.5, 1, 0.5 }
@@ -107,6 +113,7 @@ bool  is_drag_scroll       = false;
 bool  is_drag_scroll_snap  = true;
 enum DRAG_SCROLL_PRIORITY drag_scroll_priority = PRI_NONE;
 bool  is_hires_scroll = true;
+bool  is_ball_moving_after_drag_scroll = false;
 float scroll_accumulated_h = 0;
 float scroll_accumulated_v = 0;
 uint32_t last_scroll_time = 0;
@@ -125,8 +132,8 @@ int16_t cumulated_delta_v = 0;
 float average_scroll_vector_h = 0;
 float average_scroll_vector_v = 0;
 uint32_t last_snap_sample_time = 0;
-float snap_wema_t_div = PLOOPY_SNAP_EWMA_T;
-uint32_t snap_sample_period = PLOOPY_SNAP_EWMA_SMP_PERIOD;
+const float snap_wema_t_div = PLOOPY_SNAP_EWMA_T;
+const uint32_t snap_sample_period = PLOOPY_SNAP_EWMA_SMP_PERIOD;
 
 #ifdef ENCODER_ENABLE
 uint16_t lastScroll        = 0; // Previous confirmed wheel event
@@ -257,14 +264,7 @@ void toggle_snipe_momentary() {
 report_mouse_t pointing_device_task_kb(report_mouse_t mouse_report) {
     static uint16_t hires_scroll_res = 1;
 
-    if (!is_drag_scroll) {
-        scroll_accumulated_h = scroll_accumulated_v = 0;
-        cumulated_delta_h = cumulated_delta_v
-            = average_scroll_vector_h = average_scroll_vector_v = 0;
-        return pointing_device_task_user(mouse_report);
-    }
-
-    if (is_drag_scroll_snap) {
+    if ((is_drag_scroll && is_drag_scroll_snap) || (!is_drag_scroll && is_ball_moving_after_drag_scroll)) {
         // The elapsed time of first sample will be extremely large,
         // but it's probably fine.
         uint32_t snap_elapsed_time = timer_elapsed32(last_snap_sample_time);
@@ -280,24 +280,56 @@ report_mouse_t pointing_device_task_kb(report_mouse_t mouse_report) {
                                       + (1 - alpha) * abs((float)cumulated_delta_v) / snap_elapsed_time;
             cumulated_delta_h = cumulated_delta_v = 0;
         }
+    } else {
+        average_scroll_vector_h = average_scroll_vector_v = 0;
+        cumulated_delta_h = cumulated_delta_v = 0;
+    }
 
+    if (!is_drag_scroll) {
+        if (is_ball_moving_after_drag_scroll  // guard against unnecessary calculation
+            && average_scroll_vector_h * average_scroll_vector_h
+            + average_scroll_vector_v * average_scroll_vector_v
+            < PLOOPY_MOVEMENT_SPEED_AFTER_DRAGSCROLL) {
+                is_ball_moving_after_drag_scroll = 0;
+        }
+
+        if (PLOOPY_BEHAVIOR_AFTER_DRAGSCROLL == 0
+            || !is_ball_moving_after_drag_scroll) {
+            is_ball_moving_after_drag_scroll = 0;
+            scroll_accumulated_h = scroll_accumulated_v = 0;
+            return pointing_device_task_user(mouse_report);
+        }
+
+        // additional check since
+        if (PLOOPY_BEHAVIOR_AFTER_DRAGSCROLL == 1) {
+            // fall through to scrolling part
+            // note that the scrolling part sets is_ball_moving = 1,
+        } else {
+            scroll_accumulated_h = scroll_accumulated_v = 0;
+            mouse_report.x = mouse_report.y = 0;
+            return pointing_device_task_user(mouse_report);
+        }
+    }
+
+    is_ball_moving_after_drag_scroll = 1;
+
+    if (is_drag_scroll_snap) {
         // SNAP, PRI_NONE is free scroll with snapping
         if (drag_scroll_priority == PRI_H
                 || average_scroll_vector_h >= average_scroll_vector_v * PLOOPY_SNAP_RATIO) {
-            scroll_accumulated_h += (float)mouse_report.x / scroll_div[keyboard_config.scroll_div_config];
+            scroll_accumulated_h += (float) mouse_report.x / scroll_div[keyboard_config.scroll_div_config];
         }
         if (drag_scroll_priority == PRI_V
                 || average_scroll_vector_v >= average_scroll_vector_h * PLOOPY_SNAP_RATIO) {
-            scroll_accumulated_v += (float)mouse_report.y / scroll_div[keyboard_config.scroll_div_config];
+            scroll_accumulated_v += (float) mouse_report.y / scroll_div[keyboard_config.scroll_div_config];
         }
     } else {
         // NO_SNAP, PRI_NONE is true free scroll
         if (drag_scroll_priority != PRI_V)
-            scroll_accumulated_h += (float)mouse_report.x / scroll_div[keyboard_config.scroll_div_config];
+            scroll_accumulated_h += (float) mouse_report.x / scroll_div[keyboard_config.scroll_div_config];
         if (drag_scroll_priority != PRI_H)
-            scroll_accumulated_v += (float)mouse_report.y / scroll_div[keyboard_config.scroll_div_config];
+            scroll_accumulated_v += (float) mouse_report.y / scroll_div[keyboard_config.scroll_div_config];
     }
-
 
     // throttle scrolling
     if (timer_elapsed32(last_scroll_time) < 16) {
@@ -311,8 +343,8 @@ report_mouse_t pointing_device_task_kb(report_mouse_t mouse_report) {
             mouse_report.h = (int16_t) scroll_accumulated_h;
             mouse_report.v = (int16_t) (vscroll_sign * scroll_accumulated_v);
             // Update accumulated scroll values by subtracting the integer parts
-            scroll_accumulated_h -= (int16_t)scroll_accumulated_h;
-            scroll_accumulated_v -= (int16_t)scroll_accumulated_v;
+            scroll_accumulated_h -= (int16_t) scroll_accumulated_h;
+            scroll_accumulated_v -= (int16_t) scroll_accumulated_v;
         } else {
             // Shamelessly copied from https://github.com/adept-hires-scroll-mod/qmk_firmware
             // Emulate no hires scrolling by only reporting in increments of the resolution
